@@ -23,7 +23,13 @@ from typing import (
 import numpy
 
 from . import collective
-from .core import Booster, DMatrix, XGBoostError, _parse_eval_str
+from .core import (
+    Booster,
+    DMatrix,
+    XGBoostError,
+    _deprecate_positional_args,
+    _parse_eval_str,
+)
 
 __all__ = [
     "TrainingCallback",
@@ -319,7 +325,11 @@ class EarlyStopping(TrainingCallback):
     maximize :
         Whether to maximize evaluation metric.  None means auto (discouraged).
     save_best :
-        Whether training should return the best model or the last model.
+        Whether training should return the best model or the last model. If set to
+        `True`, it will only keep the boosting rounds up to the detected best iteration,
+        discarding the ones that come after. This is only supported with tree methods
+        (not `gblinear`). Also, the `cv` function doesn't return a model, the parameter
+        is not applicable.
     min_delta :
 
         .. versionadded:: 1.5.0
@@ -346,8 +356,10 @@ class EarlyStopping(TrainingCallback):
     """
 
     # pylint: disable=too-many-arguments
+    @_deprecate_positional_args
     def __init__(
         self,
+        *,
         rounds: int,
         metric_name: Optional[str] = None,
         data_name: Optional[str] = None,
@@ -372,10 +384,15 @@ class EarlyStopping(TrainingCallback):
 
     def before_training(self, model: _Model) -> _Model:
         self.starting_round = model.num_boosted_rounds()
+        if not isinstance(model, Booster) and self.save_best:
+            raise ValueError(
+                "`save_best` is not applicable to the `cv` function as it doesn't return"
+                " a model."
+            )
         return model
 
     def _update_rounds(
-        self, score: _Score, name: str, metric: str, model: _Model, epoch: int
+        self, *, score: _Score, name: str, metric: str, model: _Model, epoch: int
     ) -> bool:
         def get_s(value: _Score) -> float:
             """get score if it's cross validation history."""
@@ -420,7 +437,7 @@ class EarlyStopping(TrainingCallback):
             self.stopping_history[name][metric] = cast(_ScoreList, [score])
             self.best_scores[name] = {}
             self.best_scores[name][metric] = [score]
-            model.set_attr(best_score=str(score), best_iteration=str(epoch))
+            model.set_attr(best_score=str(get_s(score)), best_iteration=str(epoch))
         elif not improve_op(score, self.best_scores[name][metric][-1]):
             # Not improved
             self.stopping_history[name][metric].append(score)  # type: ignore
@@ -429,7 +446,7 @@ class EarlyStopping(TrainingCallback):
             self.stopping_history[name][metric].append(score)  # type: ignore
             self.best_scores[name][metric].append(score)
             record = self.stopping_history[name][metric][-1]
-            model.set_attr(best_score=str(record), best_iteration=str(epoch))
+            model.set_attr(best_score=str(get_s(record)), best_iteration=str(epoch))
             self.current_rounds = 0  # reset
 
         if self.current_rounds >= self.rounds:
@@ -471,7 +488,9 @@ class EarlyStopping(TrainingCallback):
 
         # The latest score
         score = data_log[metric_name][-1]
-        return self._update_rounds(score, data_name, metric_name, model, epoch)
+        return self._update_rounds(
+            score=score, name=data_name, metric=metric_name, model=model, epoch=epoch
+        )
 
     def after_training(self, model: _Model) -> _Model:
         if not self.save_best:
@@ -506,12 +525,22 @@ class EvaluationMonitor(TrainingCallback):
         How many epoches between printing.
     show_stdv :
         Used in cv to show standard deviation.  Users should not specify it.
+    logger :
+        A callable used for logging evaluation result.
+
     """
 
-    def __init__(self, rank: int = 0, period: int = 1, show_stdv: bool = False) -> None:
+    def __init__(
+        self,
+        rank: int = 0,
+        period: int = 1,
+        show_stdv: bool = False,
+        logger: Callable[[str], None] = collective.communicator_print,
+    ):
         self.printer_rank = rank
         self.show_stdv = show_stdv
         self.period = period
+        self._logger = logger
         assert period > 0
         # last error message, useful when early stopping and period are used together.
         self._latest: Optional[str] = None
@@ -546,7 +575,7 @@ class EvaluationMonitor(TrainingCallback):
             msg += "\n"
 
             if (epoch % self.period) == 0 or self.period == 1:
-                collective.communicator_print(msg)
+                self._logger(msg)
                 self._latest = None
             else:
                 # There is skipped message
@@ -555,7 +584,7 @@ class EvaluationMonitor(TrainingCallback):
 
     def after_training(self, model: _Model) -> _Model:
         if collective.get_rank() == self.printer_rank and self._latest is not None:
-            collective.communicator_print(self._latest)
+            self._logger(self._latest)
         return model
 
 
