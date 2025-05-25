@@ -10,7 +10,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000",
-                 "https://water-footprint-backend.vercel.app/"],  # Change this to your frontend URL in production
+                 "https://water-footprint.netlify.app/"],  # Change this to your frontend URL in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
