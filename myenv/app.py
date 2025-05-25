@@ -6,14 +6,14 @@ import pandas as pd
 
 app = FastAPI()
 
-# Allow CORS for all origins (you can restrict this in production)
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000",
-                 "https://water-footprint.netlify.app/"],  # Change this to your frontend URL in production
+    allow_origins=["http://localhost:3000", "https://water-footprint.netlify.app"],  # Removed trailing slash
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # Load the trained model
