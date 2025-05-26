@@ -3,22 +3,40 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import xgboost as xgb
 import pandas as pd
+import os
 
 app = FastAPI()
 
-# Configure CORS
+# Get CORS origins from environment variables, with fallback to default values
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,https://water-footprint.netlify.app"
+).split(",")
+
+# Configure CORS with more specific settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://water-footprint.netlify.app"],  # Removed trailing slash
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
     max_age=3600,  # Cache preflight requests for 1 hour
 )
 
+# Add a root endpoint to check if the API is working
+@app.get("/")
+async def root():
+    return {"message": "Water Footprint API is running"}
+
 # Load the trained model
-# model = xgb.Booster()
-# model.load_model('waterfootprint_xgboost_model.json')
+try:
+    model = xgb.Booster()
+    model_path = os.path.join(os.path.dirname(__file__), 'waterfootprint_xgboost_model.json')
+    model.load_model(model_path)
+except Exception as e:
+    print(f"Error loading model: {str(e)}")
+    raise
 
 class InputData(BaseModel):
     faucetDuration: int
